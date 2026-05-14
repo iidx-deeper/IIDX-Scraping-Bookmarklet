@@ -1,33 +1,38 @@
-# BPIM2 — Score Importer Bookmarklet
+# DEEPER — IIDX DP Score Importer Bookmarklet
 
-A browser bookmarklet that scrapes your beatmania IIDX score data from the
-[KONAMI e-AMUSEMENT GATE](https://p.eagate.573.jp/) difficulty page and exports
-a CSV file ready to import into [BPIM2](https://bpi2.poyashi.me/) or any other score management tools using IIDX official CSV.
+A browser bookmarklet that scrapes your **beatmania IIDX Double Play (DP)** score
+data from the [KONAMI e-AMUSEMENT GATE](https://p.eagate.573.jp/) difficulty
+page and posts it directly to [DEEPER](https://deepers.site/).
+
+This is a fork of [BPIManager/IIDX-Scraping-Bookmarklet](https://github.com/BPIManager/IIDX-Scraping-Bookmarklet)
+(MIT). The original handles SP only and outputs CSV for the user to paste; this
+fork is DP only and posts the data straight into DEEPER's `scores.php` API.
 
 ---
 
-## Features
+## Why a separate fork
 
-- **Full or partial scrape** — grab all ☆1–☆12 charts (≈1–2 min) or just ☆11
-  and ☆12 (≈30 sec).
-- **Per-chart detail** — exports EX score, PGreat/Great counts, clear type
-  (NO PLAY → FULLCOMBO CLEAR), and DJ LEVEL grade for every difficulty
-  (BEGINNER / NORMAL / HYPER / ANOTHER / LEGGENDARIA).
-- **Auto-copy** — the finished CSV is automatically written to your clipboard
-  and displayed in a preview textarea.
-- **One-click import** — a direct link to the BPIM2 import page is
-  shown on completion.
-- **Version-aware** — reads the IIDX version number from the current URL and
-  targets the matching endpoint automatically (falls back to version 33).
+- **DP only** — DEEPER's focus is IIDX Double Play. The GATE endpoint is queried
+  with `style=1` instead of `style=0`.
+- **Direct upload** — no clipboard / paste step. The bookmarklet POSTs an
+  IIDX-official-compatible CSV to `https://deepers.site/api/scores.php`.
+- **Branded UI** — DEEPER's purple `#6c5ce7` palette.
+
+---
+
+## Status
+
+WIP (Phase 1 of the implementation plan). Not yet deployed.
 
 ---
 
 ## Important Security Notice
 
-**This bookmarklet runs arbitrary JavaScript on the e-AMUSEMENT GATE page using your authenticated session.  
-While this project is open source, executing modified or untrusted code could result in session data (e.g. cookies or tokens) being exposed.  
-Additionally, this endpoint dynamically serves the latest code from the main branch, so the executed script may change over time.  
-Always verify the source and use at your own risk.**
+This bookmarklet runs arbitrary JavaScript on the e-AMUSEMENT GATE page using
+your authenticated session. While this project is open source, executing
+modified or untrusted code could expose session data. The script is also
+served dynamically from this repository (or DEEPER's CDN), so the executed
+code may change over time. Always verify the source and use at your own risk.
 
 > **Disclaimer:** This project is an independent fan tool and is not affiliated
 > with or endorsed by Konami Digital Entertainment Co., Ltd. Use responsibly
@@ -35,168 +40,65 @@ Always verify the source and use at your own risk.**
 
 ---
 
-## Installation
+## Development
 
-### Option A — Build from source (recommended)
-
-**Prerequisites:** Node.js 18+ and a TypeScript compiler.
+**Prerequisites:** Node.js 18+.
 
 ```bash
-# 1. Clone the repository
-git clone https://github.com/BPIManager/IIDX-Scraping-Bookmarklet.git
+git clone git@github.com:iidx-deeper/IIDX-Scraping-Bookmarklet.git
 cd IIDX-Scraping-Bookmarklet
-
-# 2. Install dev dependencies
 npm install
-
-# 3. Compile TypeScript → JavaScript
-npx tsc --target ES2020 --lib ES2020,DOM --strict bookmarklet.ts --outFile dist/bookmarklet.js
-
-# 4. Minify (optional, reduces bookmarklet URL length)
-npx terser dist/bookmarklet.js -o dist/bookmarklet.min.js --compress --mangle
+npm run build
+# → dist/bookmarklet.js, dist/bookmarklet.min.js
 ```
 
-Then wrap the minified output as a bookmarklet URL:
+## Deployment
 
-```
-javascript:(()=>{ /* paste minified content here */ })();
-```
+The minified file at `dist/bookmarklet.min.js` is FTP-uploaded to CoreServer
+alongside DEEPER. The user-facing bookmark URL is a tiny loader:
 
-### Option B — Use a pre-built release
-
-Just access [https://bpi2.poyashi.me/bookmarklet.js](https://bpi2.poyashi.me/bookmarklet.js).
-
-This endpoint dynamically proxies the latest `bookmarklet.min.js` from the `main` branch of this repository:
-
-```ts
-import type { GetServerSideProps } from "next";
-
-export const getServerSideProps: GetServerSideProps = async ({ req, res }) => {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
-  res.setHeader("Content-Type", "application/javascript");
-
-  if (req.method === "OPTIONS") {
-    res.statusCode = 204;
-    res.end();
-    return { props: {} };
-  }
-
-  const script = await fetch(
-    "https://raw.githubusercontent.com/BPIManager/IIDX-Scraping-Bookmarklet/refs/heads/main/dist/bookmarklet.min.js",
-  );
-  const body = await script.text();
-
-  res.write(body);
-  res.end();
-
-  return { props: {} };
-};
+```javascript
+javascript:(()=>{window.__DEEPER_IIDX_ID="XXXX-XXXX";const s=document.createElement('script');s.src='https://deepers.site/bookmarklet.min.js?v='+Date.now();document.head.appendChild(s);})()
 ```
 
-> **This means the bookmarklet always executes the latest version from the `main` branch. Behavior may change over time as updates are pushed.**
-
-### Adding to your browser
-
-1. Show your bookmarks bar (usually **Ctrl+Shift+B** / **⌘+Shift+B**).
-2. Create a new bookmark.
-3. Set the **Name** to anything you like (e.g. `BPIM2`).
-4. Paste the full `javascript:(...)` string as the **URL / Location**.
-5. Save.
-
----
-
-## Usage
-
-1. Log in to [e-AMUSEMENT GATE](https://p.eagate.573.jp/) and navigate to any
-   page under `/game/2dx/<version>/`.
-2. Click the **BPIM2** bookmark.
-3. In the modal, choose your scrape mode:
-   - **全楽曲を取得する (☆1–12)** — all songs
-   - **☆11・☆12 のみ取得する** — level 11 and 12 only
-4. Wait for the progress indicator to finish.
-5. The CSV is automatically copied to your clipboard. Use the
-   **インポートページを開く** button to jump straight to BPIM2's import
-   screen and paste.
+(Phase 2 will generate a per-user customized loader from a DEEPER SPA page.)
 
 ---
 
 ## CSV format
 
-The exported CSV follows the column layout expected by BPIM2.
+The CSV posted to `scores.php` follows the IIDX official CSV column layout
+(`scores.php` parses headers dynamically).
 
-| Column group       | Columns                                                                                                                            |
-| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
-| Song metadata      | バージョン, タイトル, ジャンル, アーティスト, プレー回数                                                                           |
-| Per difficulty × 5 | `{DIFF} 難易度`, `{DIFF} スコア`, `{DIFF} PGreat`, `{DIFF} Great`, `{DIFF} ミスカウント`, `{DIFF} クリアタイプ`, `{DIFF} DJ LEVEL` |
-| Timestamp          | 最終プレー日時                                                                                                                     |
+| Column group       | Columns |
+| ------------------ | ------- |
+| Song metadata      | バージョン, タイトル, ジャンル, アーティスト, プレー回数 |
+| Per difficulty × 4 | `{DIFF} 難易度`, `{DIFF} スコア`, `{DIFF} PGreat`, `{DIFF} Great`, `{DIFF} ミスカウント`, `{DIFF} クリアタイプ`, `{DIFF} DJ LEVEL` |
+| Timestamp          | 最終プレー日時 |
 
-Difficulties: `BEGINNER`, `NORMAL`, `HYPER`, `ANOTHER`, `LEGGENDARIA`.
+Difficulties (DP): `NORMAL`, `HYPER`, `ANOTHER`, `LEGGENDARIA`. (`BEGINNER` is
+SP-only and omitted.)
 
 Fields not available on GATE (version, genre, artist, miss count, last play
-time) are exported as `"-"`. Unplayed charts are exported with a score of `0`
-and a clear type of `NO PLAY`.
+time) are exported as `---`. `scores.php` treats `---` as NULL for miss count.
 
 ---
 
-## Development
-
-```
-IIDX-Scraping-Bookmarklet/
-├── bookmarklet.ts          # Main source (TypeScript, single IIFE)
-├── dist/
-│   ├── bookmarklet.js      # Compiled output
-│   └── bookmarklet.min.js  # Minified bookmarklet
-├── tsconfig.json
-└── package.json
-```
-
-### Recommended `tsconfig.json`
-
-```json
-{
-  "compilerOptions": {
-    "target": "ES2020",
-    "lib": ["ES2020", "DOM"],
-    "strict": true,
-    "outFile": "dist/bookmarklet.js"
-  },
-  "include": ["bookmarklet.ts"]
-}
-```
-
----
-
-## Caveats & known limitations
+## Caveats
 
 - **Authentication required** — the bookmarklet uses `credentials: "include"`,
-  so you must be logged in to e-AMUSEMENT GATE in the same browser session.
-- **Rate limiting** — a 400 ms delay is inserted between each paginated
-  request. Scraping all levels therefore takes 1–2 minutes; do not navigate
-  away during this time.
-- **Clipboard API** — the auto-copy step relies on `navigator.clipboard`, which
-  requires either `localhost` or an HTTPS origin. On some browsers the
-  permission prompt may appear; if denied, the CSV is still shown in the
-  textarea for manual copying.
-- **DOM selectors** — parsing relies on KONAMI's current HTML structure
-  (`.series-difficulty table tr`, `clflg*.gif`, etc.). Changes to the GATE
-  front-end may require updates to `parseTable`.
-
----
-
-## Contributing
-
-Pull requests are welcome. When editing `bookmarklet.ts`, please:
-
-1. Maintain **TSDoc** comments on all exported types and public functions.
-2. Run `tsc --noEmit` to verify there are no type errors before committing.
-3. Update this README if the CSV schema or UI behaviour changes.
+  so you must be logged in to e-AMUSEMENT GATE in the same browser.
+- **Miss count not available** — the GATE difficulty page does not expose
+  miss counts. DEEPER's 3-axis Voltage (CV / FV / SV) does not depend on miss
+  count, so this does not affect Voltage accuracy.
+- **Rate limiting** — 400 ms delay between paginated requests; scraping all
+  ☆1–☆12 takes ~1–2 minutes. Do not navigate away.
+- **DOM selectors** — parsing relies on KONAMI's current HTML structure.
+  Front-end changes may break the bookmarklet; re-build and re-deploy when
+  that happens.
 
 ---
 
 ## License
 
-MIT — see [LICENSE](LICENSE.md) for details.
-
----
-
+MIT — see [LICENSE.md](LICENSE.md). Forked from BPIManager/IIDX-Scraping-Bookmarklet.

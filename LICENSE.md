@@ -1,6 +1,11 @@
 MIT License
 
+Copyright (c) 2026 iidx-deeper
 Copyright (c) 2026 BPIM2
+
+This project is a fork of https://github.com/BPIManager/IIDX-Scraping-Bookmarklet
+adapted for the DEEPER IIDX DP score tracker (https://deepers.site/).
+The original BPIM2 attribution and license is preserved below.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

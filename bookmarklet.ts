@@ -1,9 +1,16 @@
 /**
  * @file bookmarklet.ts
- * @description IIDX score & tower importer bookmarklet for BPIM2
+ * @description IIDX DP score importer bookmarklet for DEEPER
  *
- * Scrapes score data or tower data from the KONAMI e-AMUSEMENT GATE and
- * exports a CSV compatible with IIDX official CSV format.
+ * Scrapes Double Play score data from the KONAMI e-AMUSEMENT GATE and POSTs an
+ * IIDX-official-compatible CSV directly to DEEPER's `scores.php` API.
+ *
+ * Fork of BPIManager/IIDX-Scraping-Bookmarklet (MIT). Differences:
+ *  - DP only (`style=1` instead of `style=0`)
+ *  - Direct upload to DEEPER (no clipboard step)
+ *  - BEGINNER removed (DP has no BEGINNER difficulty)
+ *  - Miss-count placeholder is `---` (parsed as NULL by scores.php)
+ *  - Tower data import removed (out of scope for DEEPER)
  *
  * @usage
  * Compile with `tsc --target ES2020 --lib ES2020,DOM bookmarklet.ts`, then
@@ -15,9 +22,11 @@
   // Constants
   // ---------------------------------------------------------------------------
 
-  /** Difficulty names used both as CSV column prefixes and POST parameters. */
+  /**
+   * Difficulty names used both as CSV column prefixes and POST parameters.
+   * BEGINNER is intentionally omitted — DP has no BEGINNER difficulty.
+   */
   const DIFFICULTIES = [
-    "BEGINNER",
     "NORMAL",
     "HYPER",
     "ANOTHER",
@@ -101,7 +110,7 @@
   type SongMap = Record<string, SongEntry>;
 
   /** Scraping mode selected by the user in the UI. */
-  type ScrapeMode = "all" | "1112" | "tower";
+  type ScrapeMode = "all" | "1112";
 
   // ---------------------------------------------------------------------------
   // Helpers — URL / versioning
@@ -115,7 +124,25 @@
   const ver = detectVersion();
 
   const SCORE_POST_URL = `https://p.eagate.573.jp/game/2dx/${ver}/djdata/music/difficulty.html`;
-  const TOWER_URL = `https://p.eagate.573.jp/game/2dx/${ver}/djdata/tower.html`;
+
+  /** DEEPER score upload API. */
+  const DEEPER_POST_URL = "https://deepers.site/api/scores.php";
+
+  /** Public DEEPER URL — link target shown after success. */
+  const DEEPER_HOME = "https://deepers.site/";
+
+  /** Placeholder for fields not available on GATE; `scores.php` treats this as NULL. */
+  const NA = "---";
+
+  /** localStorage key for cached IIDX ID. */
+  const LS_IIDX_ID_KEY = "__deeper_iidx_id";
+
+  /** IIDX ID pre-baked by the per-user loader (Phase 2). Optional. */
+  const PREBAKED_IIDX_ID: string | undefined =
+    typeof (window as unknown as { __DEEPER_IIDX_ID?: string })
+      .__DEEPER_IIDX_ID === "string"
+      ? (window as unknown as { __DEEPER_IIDX_ID: string }).__DEEPER_IIDX_ID
+      : undefined;
 
   // ---------------------------------------------------------------------------
   // Helpers — CSV encoding
@@ -184,7 +211,7 @@
   ): Promise<string> => {
     const body = new URLSearchParams({
       difficult: String(difficult),
-      style: "0",
+      style: "1", // DP (Double Play)
       disp: "1",
     });
     if (offset > 0) body.append("offset", String(offset));
@@ -236,54 +263,49 @@
 
     overlay.innerHTML = `
       <div style="background:#fff; color:#1a1a1a; border-radius:16px; width:480px; max-width:95vw; box-shadow:0 12px 48px rgba(0,0,0,0.25); overflow:hidden;">
-        <div style="background:#5b21b6; padding:18px 24px; display:flex; align-items:center; justify-content:space-between;">
+        <div style="background:#4a3fb8; padding:18px 24px; display:flex; align-items:center; justify-content:space-between;">
           <div style="display:flex; align-items:center; gap:10px;">
-            <span style="font-size:20px; font-weight:800; color:#fff; letter-spacing:0.5px;">BPIM2</span>
-            <span style="font-size:12px; color:#ddd6fe; opacity:0.9;">Data Importer</span>
+            <span style="font-size:20px; font-weight:800; color:#fff; letter-spacing:1.5px;">DEEPER</span>
+            <span style="font-size:12px; color:#d9d4ff; opacity:0.9;">DP Score Importer</span>
           </div>
           <button id="__iidx_btn_x" style="background:none; border:none; color:#fff; font-size:24px; cursor:pointer;">&times;</button>
         </div>
 
         <div style="padding:24px;">
-          <div id="__iidx_step_select_mode">
-            <p style="margin:0 0 10px; font-weight:700;">取得するデータを選択してください</p>
-            <div style="display:flex; flex-direction:column; gap:12px;">
-              <button id="__iidx_btn_mode_score" class="__iidx_btn" style="padding:16px; border-radius:12px; background:#faf5ff; border:2px solid #7c3aed; text-align:left;">
-                <div style="font-weight:700; color:#1a1a1a;">スコアデータ</div>
-                <div style="font-size:12px; color:#7c3aed;">各難易度のスコア・クリアランプ等を抽出</div>
-              </button>
-              <button id="__iidx_btn_mode_tower" class="__iidx_btn" style="padding:16px; border-radius:12px; background:#faf5ff; border:2px solid #7c3aed; text-align:left;">
-                <div style="font-weight:700; color:#1a1a1a;">IIDXタワーデータ</div>
-                <div style="font-size:12px; color:#7c3aed;">日別の鍵盤・スクラッチ打鍵数を抽出</div>
-              </button>
-            </div>
+          <div id="__iidx_step_iidx_id">
+            <p style="margin:0 0 10px; font-weight:700;">IIDX IDを入力してください</p>
+            <p style="margin:0 0 14px; font-size:12px; color:#6b7280;">DEEPERに紐づける ID です。e-AMUSEMENT 上に表示されている <code style="background:#f5f3ff; padding:2px 5px; border-radius:3px;">XXXX-XXXX</code> 形式の数字。</p>
+            <input id="__iidx_input_id" type="text" placeholder="0000-0000" maxlength="9" style="width:100%; padding:12px; border:2px solid #e5e7eb; border-radius:8px; font-size:16px; font-family:monospace; text-align:center; letter-spacing:2px; box-sizing:border-box;">
+            <p id="__iidx_input_err" style="margin:8px 0 0; font-size:12px; color:#b91c1c; display:none;"></p>
+            <button id="__iidx_btn_id_next" class="__iidx_btn" style="margin-top:16px; width:100%; padding:12px; border-radius:8px; background:#6c5ce7; color:#fff; font-size:14px; font-weight:700;">次へ</button>
+            <p style="margin:12px 0 0; font-size:11px; color:#9ca3af; text-align:center;">入力した IIDX ID はブラウザに保存され、次回以降は自動入力されます</p>
           </div>
 
           <div id="__iidx_step_select_score" style="display:none;">
             <div style="display:flex; align-items:center; margin-bottom:10px; gap:8px;">
               <button id="__iidx_btn_back" style="background:none; border:none; color:#6b7280; cursor:pointer; font-size:14px; padding:0;">◀ 戻る</button>
-              <p style="margin:0; font-weight:700;">スコアの取得範囲を選択してください</p>
+              <p style="margin:0; font-weight:700;">取得範囲を選択してください</p>
             </div>
             <div style="display:flex; flex-direction:column; gap:12px;">
-              <button id="__iidx_btn_all" class="__iidx_btn" style="padding:16px; border-radius:12px; background:#faf5ff; border:2px solid #7c3aed; text-align:left;">
+              <button id="__iidx_btn_all" class="__iidx_btn" style="padding:16px; border-radius:12px; background:#f5f3ff; border:2px solid #6c5ce7; text-align:left;">
                 <div style="font-weight:700; color:#1a1a1a;">全楽曲を取得する (☆1-12)</div>
-                <div style="font-size:12px; color:#7c3aed;">目安: 1〜2分</div>
+                <div style="font-size:12px; color:#6c5ce7;">目安: 1〜2分</div>
               </button>
-              <button id="__iidx_btn_1112" class="__iidx_btn" style="padding:16px; border-radius:12px; background:#faf5ff; border:2px solid #7c3aed; text-align:left;">
+              <button id="__iidx_btn_1112" class="__iidx_btn" style="padding:16px; border-radius:12px; background:#f5f3ff; border:2px solid #6c5ce7; text-align:left;">
                 <div style="font-weight:700; color:#1a1a1a;">☆11・☆12 のみ取得する</div>
-                <div style="font-size:12px; color:#7c3aed;">目安: 約30秒</div>
+                <div style="font-size:12px; color:#6c5ce7;">目安: 約30秒</div>
               </button>
             </div>
           </div>
 
           <div id="__iidx_step_progress" style="display:none; text-align:center; padding:20px 0;">
-            <div style="width:48px; height:48px; border:4px solid #f3e8ff; border-top-color:#7c3aed; border-radius:50%; animation:__iidx_spin 1s linear infinite; margin:0 auto 20px;"></div>
+            <div style="width:48px; height:48px; border:4px solid #ece9ff; border-top-color:#6c5ce7; border-radius:50%; animation:__iidx_spin 1s linear infinite; margin:0 auto 20px;"></div>
             <div id="__iidx_status_level" style="font-weight:700; font-size:16px; margin-bottom:4px;">Ready...</div>
             <div id="__iidx_status_page" style="font-size:13px; color:#6b7280; margin-bottom:24px;"></div>
             <div style="display:inline-flex; align-items:baseline; gap:8px; background:#f5f3ff; border-radius:12px; padding:12px 32px;">
               <span style="font-size:13px; color:#6b7280;">取得件数</span>
-              <span id="__iidx_item_count" style="font-size:32px; font-weight:800; color:#5b21b6;">0</span>
-              <span id="__iidx_count_unit" style="font-size:13px; color:#6b7280;">曲</span>
+              <span id="__iidx_item_count" style="font-size:32px; font-weight:800; color:#4a3fb8;">0</span>
+              <span style="font-size:13px; color:#6b7280;">曲</span>
             </div>
           </div>
 
@@ -295,35 +317,45 @@
                 <div id="__iidx_result_summary" style="font-size:12px;"></div>
               </div>
             </div>
-            <textarea id="__iidx_output" style="width:100%; height:140px; border:1px solid #e5e7eb; border-radius:8px; font-family:monospace; font-size:11px; padding:10px; resize:none; background:#f9fafb;" readonly></textarea>
+            <div id="__iidx_result_details" style="background:#f9fafb; border:1px solid #e5e7eb; border-radius:8px; padding:12px; font-size:12px; color:#374151; line-height:1.6; max-height:160px; overflow-y:auto;"></div>
             <div style="display:flex; gap:10px; margin-top:16px;">
-              <button id="__iidx_btn_copy" class="__iidx_btn" style="display:none; flex:1; background:#7c3aed; color:#fff; border:none; border-radius:8px; font-size:14px; font-weight:700; padding:12px; cursor:pointer;">コピー</button>
-              <a id="__iidx_link_bpim" href="https://bpi2.poyashi.me/import" target="_blank" style="flex:2; background:#059669; color:#fff; text-decoration:none; padding:12px; border-radius:8px; text-align:center; font-weight:700; font-size:14px;">BPIM2を開く</a>
+              <a id="__iidx_link_deeper" href="https://deepers.site/" target="_blank" style="flex:2; background:#6c5ce7; color:#fff; text-decoration:none; padding:12px; border-radius:8px; text-align:center; font-weight:700; font-size:14px;">DEEPERを開く</a>
               <button id="__iidx_btn_close2" style="flex:1; background:#fff; border:1px solid #e5e7eb; color:#6b7280; border-radius:8px; font-size:14px;">閉じる</button>
             </div>
           </div>
 
           <div id="__iidx_step_error" style="display:none;">
             <div style="background:#fef2f2; border:1px solid #fecaca; padding:16px; border-radius:12px;">
-              <div style="font-weight:700; color:#991b1b;">Error</div>
-              <div id="__iidx_err_msg" style="font-size:13px; color:#b91c1c; margin-top:4px;"></div>
+              <div style="font-weight:700; color:#991b1b;">エラー</div>
+              <div id="__iidx_err_msg" style="font-size:13px; color:#b91c1c; margin-top:4px; word-break:break-all;"></div>
             </div>
-            <button id="__iidx_btn_retry" style="margin-top:12px; width:100%; padding:10px; border-radius:8px; border:1px solid #7c3aed; color:#7c3aed; background:none;">最初からやり直す</button>
+            <button id="__iidx_btn_retry" style="margin-top:12px; width:100%; padding:10px; border-radius:8px; border:1px solid #6c5ce7; color:#6c5ce7; background:none;">最初からやり直す</button>
           </div>
         </div>
-        <p style="margin:0; padding:0 24px 16px; font-size:12px; color:#6b7280; text-align:center;">問題が発生した場合は <a href="https://github.com/BPIManager/IIDX-Scraping-Bookmarklet" target="_blank" style="color:#7c3aed;">GitHub</a> からIssueを報告してください</p>
+        <p style="margin:0; padding:0 24px 16px; font-size:12px; color:#6b7280; text-align:center;">問題が発生した場合は <a href="https://github.com/iidx-deeper/IIDX-Scraping-Bookmarklet" target="_blank" style="color:#6c5ce7;">GitHub</a> から Issue を報告してください</p>
       </div>
     `;
 
     return overlay;
   };
 
-  const showStep = (
-    name: "select_mode" | "select_score" | "progress" | "result" | "error",
-  ): void => {
-    (
-      ["select_mode", "select_score", "progress", "result", "error"] as const
-    ).forEach((s) => {
+  type StepName =
+    | "iidx_id"
+    | "select_score"
+    | "progress"
+    | "result"
+    | "error";
+
+  const STEPS: readonly StepName[] = [
+    "iidx_id",
+    "select_score",
+    "progress",
+    "result",
+    "error",
+  ];
+
+  const showStep = (name: StepName): void => {
+    STEPS.forEach((s) => {
       const el = document.getElementById(`__iidx_step_${s}`);
       if (el) el.style.display = s === name ? "block" : "none";
     });
@@ -382,26 +414,21 @@
       .sort()
       .forEach((title) => {
         const data = songMap[title];
-        const row: string[] = ["-", escapeCsv(title), "-", "-", "-"];
+        // Metadata not exposed on GATE: version / genre / artist / plays.
+        const row: string[] = [NA, escapeCsv(title), NA, NA, NA];
 
         DIFFICULTIES.forEach((diff) => {
           const d = data[diff];
           if (d) {
-            row.push(
-              d.level,
-              d.score,
-              d.pgreat,
-              d.great,
-              "-",
-              d.lamp,
-              d.djLevel,
-            );
+            // Miss count is not exposed on the GATE difficulty page → NA.
+            // `scores.php` parses NA ("---") as NULL for miss count.
+            row.push(d.level, d.score, d.pgreat, d.great, NA, d.lamp, d.djLevel);
           } else {
-            row.push("-", "0", "0", "0", "-", "NO PLAY", "---");
+            row.push(NA, "0", "0", "0", NA, "NO PLAY", "---");
           }
         });
 
-        row.push("-"); // 最終プレー日時
+        row.push(NA); // 最終プレー日時 (not available on GATE)
         csvRows.push(row.join(","));
       });
 
@@ -409,167 +436,189 @@
   };
 
   // ---------------------------------------------------------------------------
-  // Core scraping logic (Tower)
+  // Helpers — IIDX ID
   // ---------------------------------------------------------------------------
 
-  const scrapeTower = async (): Promise<string> => {
-    const statusLevel = document.getElementById("__iidx_status_level");
-    const statusPage = document.getElementById("__iidx_status_page");
-    const itemCountEl = document.getElementById("__iidx_item_count");
+  /** Strict format check for IIDX ID (XXXX-XXXX). */
+  const isValidIidxId = (s: string): boolean => /^\d{4}-\d{4}$/.test(s);
 
-    if (statusLevel) statusLevel.textContent = `タワーデータを取得中...`;
-    if (statusPage) statusPage.textContent = ``;
-
-    const resp = await fetch(TOWER_URL, {
-      method: "GET",
-      credentials: "include",
-    });
-
-    if (!resp.ok) throw new Error(`HTTP Error: ${resp.status}`);
-    const html = await resp.text();
-
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(html, "text/html");
-    const rows = doc.querySelectorAll("table.activity tr");
-
-    const csvRows = ["プレー日,鍵盤,スクラッチ"];
-    let count = 0;
-
-    rows.forEach((row) => {
-      const tds = row.querySelectorAll("td");
-      if (tds.length < 3) return;
-
-      const date = tds[0].textContent?.trim() ?? "";
-      const key = tds[1].textContent?.replace(/回/g, "").trim() ?? "0";
-      const scr = tds[2].textContent?.replace(/回/g, "").trim() ?? "0";
-
-      csvRows.push(`${date},${key},${scr}`);
-      count++;
-      if (itemCountEl) itemCountEl.textContent = String(count);
-    });
-
-    if (count === 0) {
-      throw new Error("タワーデータが見つかりませんでした。");
+  /**
+   * Resolve the user's IIDX ID, in order of preference:
+   *   1. PREBAKED_IIDX_ID (from per-user loader, Phase 2)
+   *   2. localStorage (saved from previous run)
+   *   3. null — caller must prompt the user
+   */
+  const resolveIidxId = (): string | null => {
+    if (PREBAKED_IIDX_ID && isValidIidxId(PREBAKED_IIDX_ID)) {
+      return PREBAKED_IIDX_ID;
     }
+    try {
+      const cached = localStorage.getItem(LS_IIDX_ID_KEY);
+      if (cached && isValidIidxId(cached)) return cached;
+    } catch {
+      /* localStorage unavailable */
+    }
+    return null;
+  };
 
-    return csvRows.join("\n");
+  const saveIidxId = (id: string): void => {
+    try {
+      localStorage.setItem(LS_IIDX_ID_KEY, id);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  // ---------------------------------------------------------------------------
+  // Helpers — upload to DEEPER
+  // ---------------------------------------------------------------------------
+
+  interface DeeperUploadResult {
+    ok: boolean;
+    status: number;
+    body: Record<string, unknown> | null;
+    raw: string;
+  }
+
+  const uploadCsvToDeeper = async (
+    csv: string,
+    iidxId: string,
+  ): Promise<DeeperUploadResult> => {
+    const form = new FormData();
+    form.append("iidx_id", iidxId);
+    const blob = new Blob([csv], { type: "text/csv" });
+    form.append("file", blob, "deeper_dp.csv");
+
+    const resp = await fetch(DEEPER_POST_URL, {
+      method: "POST",
+      body: form,
+      // No credentials: DEEPER's scores.php is open (rate-limited by IP+player).
+    });
+
+    const raw = await resp.text();
+    let body: Record<string, unknown> | null = null;
+    try {
+      body = JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      body = null;
+    }
+    return { ok: resp.ok, status: resp.status, body, raw };
   };
 
   // ---------------------------------------------------------------------------
   // Main run loop
   // ---------------------------------------------------------------------------
 
-  const run = async (
-    overlay: HTMLDivElement,
-    mode: ScrapeMode,
-  ): Promise<void> => {
+  const renderSuccess = (
+    itemCount: number,
+    pageCount: number,
+    upload: DeeperUploadResult,
+  ): void => {
+    const banner = document.getElementById("__iidx_result_banner");
+    const icon = document.getElementById("__iidx_result_icon");
+    const title = document.getElementById("__iidx_result_title");
+    const summary = document.getElementById("__iidx_result_summary");
+    const details = document.getElementById("__iidx_result_details");
+
+    if (banner)
+      Object.assign(banner.style, {
+        background: "#f0fdf4",
+        border: "1px solid #bbf7d0",
+      });
+    if (icon) icon.textContent = "✅";
+    if (title) {
+      title.textContent = "DEEPERへの取り込みが完了しました";
+      title.style.color = "#166534";
+    }
+    if (summary) {
+      summary.textContent = `${itemCount}曲 / ${pageCount}ページ取得`;
+      summary.style.color = "#15803d";
+    }
+
+    if (details) {
+      const body = upload.body ?? {};
+      const lines: string[] = [];
+      if (typeof body.imported === "number") {
+        lines.push(`新規スコア: <strong>${body.imported}</strong> 件`);
+      }
+      if (typeof body.songs_added === "number" && body.songs_added > 0) {
+        lines.push(
+          `DB に新規追加された譜面: <strong>${body.songs_added}</strong>`,
+        );
+      }
+      if (typeof body.skipped === "number" && body.skipped > 0) {
+        lines.push(`スキップ: ${body.skipped}`);
+      }
+      if (Array.isArray(body.warnings) && body.warnings.length > 0) {
+        lines.push(
+          `<details><summary>警告 (${body.warnings.length})</summary>${(body.warnings as string[]).slice(0, 20).join("<br>")}</details>`,
+        );
+      }
+      details.innerHTML =
+        lines.length > 0
+          ? lines.join("<br>")
+          : "DEEPER のレスポンスを解釈できませんでした（生レスポンスは DevTools で確認）";
+    }
+  };
+
+  const renderUploadFailure = (upload: DeeperUploadResult): void => {
+    const banner = document.getElementById("__iidx_result_banner");
+    const icon = document.getElementById("__iidx_result_icon");
+    const title = document.getElementById("__iidx_result_title");
+    const summary = document.getElementById("__iidx_result_summary");
+    const details = document.getElementById("__iidx_result_details");
+
+    if (banner)
+      Object.assign(banner.style, {
+        background: "#fef2f2",
+        border: "1px solid #fecaca",
+      });
+    if (icon) icon.textContent = "⚠️";
+    if (title) {
+      title.textContent = "DEEPER への取り込みに失敗しました";
+      title.style.color = "#991b1b";
+    }
+    if (summary) {
+      summary.textContent = `HTTP ${upload.status}`;
+      summary.style.color = "#b91c1c";
+    }
+    if (details) {
+      const err =
+        (upload.body && typeof upload.body.error === "string"
+          ? upload.body.error
+          : null) ?? upload.raw.slice(0, 600);
+      details.innerHTML = `<div style="color:#b91c1c; word-break:break-all;">${err}</div>`;
+    }
+  };
+
+  const run = async (mode: ScrapeMode, iidxId: string): Promise<void> => {
     showStep("progress");
 
-    const unitEl = document.getElementById("__iidx_count_unit");
-    if (unitEl) unitEl.textContent = mode === "tower" ? "日分" : "曲";
-
     try {
-      let finalCsv = "";
-      let itemCount = 0;
-      let pageCount = 0;
+      const levelIndices: number[] =
+        mode === "all" ? [...Array(12).keys()] : [10, 11];
+      const songMap: SongMap = {};
+      const pageCounter = { value: 0 };
 
-      if (mode === "tower") {
-        finalCsv = await scrapeTower();
-        itemCount = finalCsv.split("\n").length - 1; // ヘッダー分を引く
-        pageCount = 1;
+      for (const lv of levelIndices) {
+        await scrapeLevel(songMap, lv, LEVEL_LABELS[lv], pageCounter);
+      }
+
+      const finalCsv = buildScoreCsv(songMap);
+      const itemCount = Object.keys(songMap).length;
+      const pageCount = pageCounter.value;
+
+      // POST to DEEPER
+      const statusLevel = document.getElementById("__iidx_status_level");
+      if (statusLevel) statusLevel.textContent = "DEEPER に送信中...";
+
+      const upload = await uploadCsvToDeeper(finalCsv, iidxId);
+
+      if (upload.ok) {
+        renderSuccess(itemCount, pageCount, upload);
       } else {
-        const levelIndices: number[] =
-          mode === "all" ? [...Array(12).keys()] : [10, 11];
-        const songMap: SongMap = {};
-        const pageCounter = { value: 0 };
-
-        for (const lv of levelIndices) {
-          await scrapeLevel(songMap, lv, LEVEL_LABELS[lv], pageCounter);
-        }
-
-        finalCsv = buildScoreCsv(songMap);
-        itemCount = Object.keys(songMap).length;
-        pageCount = pageCounter.value;
+        renderUploadFailure(upload);
       }
-
-      const outputEl = document.getElementById(
-        "__iidx_output",
-      ) as HTMLTextAreaElement | null;
-      const summaryEl = document.getElementById("__iidx_result_summary");
-      const bpimLink = document.getElementById(
-        "__iidx_link_bpim",
-      ) as HTMLAnchorElement | null;
-
-      if (outputEl) outputEl.value = finalCsv;
-      if (bpimLink) {
-        bpimLink.href =
-          mode === "tower"
-            ? "https://bpi2.poyashi.me/import?tab=tower"
-            : "https://bpi2.poyashi.me/import";
-      }
-
-      let autoCopied = false;
-      try {
-        await navigator.clipboard.writeText(finalCsv);
-        autoCopied = true;
-      } catch (err) {
-        console.warn("Auto-copy failed:", err);
-      }
-
-      const bannerEl = document.getElementById("__iidx_result_banner");
-      const iconEl = document.getElementById("__iidx_result_icon");
-      const titleEl = document.getElementById("__iidx_result_title");
-      const copyBtnEl = document.getElementById(
-        "__iidx_btn_copy",
-      ) as HTMLButtonElement | null;
-
-      const unitStr = mode === "tower" ? "日分のデータ" : "曲";
-      const pageStr = mode === "tower" ? "" : `（${pageCount}ページ）`;
-
-      if (autoCopied) {
-        if (bannerEl)
-          Object.assign(bannerEl.style, {
-            background: "#f0fdf4",
-            border: "1px solid #bbf7d0",
-          });
-        if (iconEl) iconEl.textContent = "✅";
-        if (titleEl)
-          Object.assign(titleEl, {
-            textContent: "コピー完了",
-            style: "font-weight:700; color:#166534;",
-          });
-        if (summaryEl)
-          Object.assign(summaryEl, {
-            textContent: `${itemCount}${unitStr}${pageStr}をクリップボードにコピーしました`,
-            style: "font-size:12px; color:#15803d;",
-          });
-      } else {
-        if (bannerEl)
-          Object.assign(bannerEl.style, {
-            background: "#fffbeb",
-            border: "1px solid #fde68a",
-          });
-        if (iconEl) iconEl.textContent = "⚠️";
-        if (titleEl)
-          Object.assign(titleEl, {
-            textContent: "取得完了",
-            style: "font-weight:700; color:#92400e;",
-          });
-        if (summaryEl)
-          Object.assign(summaryEl, {
-            textContent: `${itemCount}${unitStr}${pageStr}を取得しました。下のボタンでコピーしてください`,
-            style: "font-size:12px; color:#b45309;",
-          });
-        if (copyBtnEl) {
-          copyBtnEl.style.display = "block";
-          copyBtnEl.onclick = async () => {
-            await navigator.clipboard.writeText(finalCsv);
-            copyBtnEl.textContent = "コピー済み ✓";
-            copyBtnEl.style.background = "#059669";
-          };
-        }
-      }
-
       showStep("result");
     } catch (e: unknown) {
       const msgEl = document.getElementById("__iidx_err_msg");
@@ -588,8 +637,8 @@
   const overlay = buildOverlay();
   document.body.appendChild(overlay);
 
-  // Initial state
-  showStep("select_mode");
+  // Mutable state across steps.
+  let resolvedIidxId: string | null = resolveIidxId();
 
   const closeModal = (): void => {
     if (document.body.contains(overlay)) {
@@ -597,21 +646,50 @@
     }
   };
 
-  // Step 1: Mode Select
-  (
-    document.getElementById("__iidx_btn_mode_score") as HTMLButtonElement
-  ).onclick = () => showStep("select_score");
-  (
-    document.getElementById("__iidx_btn_mode_tower") as HTMLButtonElement
-  ).onclick = () => run(overlay, "tower");
+  const idInput = document.getElementById(
+    "__iidx_input_id",
+  ) as HTMLInputElement | null;
+  const idErr = document.getElementById("__iidx_input_err");
 
-  // Step 2: Score Select
+  // If we already know the IIDX ID, skip the input step.
+  if (resolvedIidxId) {
+    if (idInput) idInput.value = resolvedIidxId;
+    showStep("select_score");
+  } else {
+    showStep("iidx_id");
+  }
+
+  // Step: IIDX ID input
+  const handleIidxIdSubmit = (): void => {
+    const raw = (idInput?.value ?? "").trim();
+    if (!isValidIidxId(raw)) {
+      if (idErr) {
+        idErr.textContent =
+          "IIDX ID の形式が正しくありません（例: 5765-9412）";
+        idErr.style.display = "block";
+      }
+      return;
+    }
+    if (idErr) idErr.style.display = "none";
+    resolvedIidxId = raw;
+    saveIidxId(raw);
+    showStep("select_score");
+  };
+
+  (
+    document.getElementById("__iidx_btn_id_next") as HTMLButtonElement
+  ).onclick = handleIidxIdSubmit;
+  idInput?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") handleIidxIdSubmit();
+  });
+
+  // Step: Score range select
   (document.getElementById("__iidx_btn_back") as HTMLButtonElement).onclick =
-    () => showStep("select_mode");
+    () => showStep("iidx_id");
   (document.getElementById("__iidx_btn_all") as HTMLButtonElement).onclick =
-    () => run(overlay, "all");
+    () => resolvedIidxId && run("all", resolvedIidxId);
   (document.getElementById("__iidx_btn_1112") as HTMLButtonElement).onclick =
-    () => run(overlay, "1112");
+    () => resolvedIidxId && run("1112", resolvedIidxId);
 
   // Global Actions
   (document.getElementById("__iidx_btn_x") as HTMLButtonElement).onclick =
@@ -619,7 +697,7 @@
   (document.getElementById("__iidx_btn_close2") as HTMLButtonElement).onclick =
     closeModal;
   (document.getElementById("__iidx_btn_retry") as HTMLButtonElement).onclick =
-    () => showStep("select_mode");
+    () => showStep(resolvedIidxId ? "select_score" : "iidx_id");
 
   // Close on backdrop click.
   overlay.addEventListener("click", (e: MouseEvent) => {
