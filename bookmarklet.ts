@@ -282,12 +282,16 @@
           </div>
 
           <div id="__iidx_step_id_confirm" style="display:none;">
-            <p style="margin:0 0 14px; font-weight:700;">IIDX ID を確認してください</p>
+            <p style="margin:0 0 14px; font-weight:700;">プレイヤー情報を確認してください</p>
             <div style="background:#f5f3ff; border:2px solid #6c5ce7; border-radius:12px; padding:18px; text-align:center; margin-bottom:14px;">
               <div style="font-size:11px; color:#6b7280; letter-spacing:1px; margin-bottom:6px;">あなたの IIDX ID</div>
               <div id="__iidx_confirm_id_text" style="font-family:monospace; font-size:24px; font-weight:800; color:#4a3fb8; letter-spacing:3px;">-</div>
+              <div id="__iidx_confirm_name_wrap" style="margin-top:14px; padding-top:14px; border-top:1px dashed #c0c0d8; display:none;">
+                <div style="font-size:11px; color:#6b7280; letter-spacing:1px; margin-bottom:6px;">DJ NAME</div>
+                <div id="__iidx_confirm_name_text" style="font-family:monospace; font-size:18px; font-weight:700; color:#4a3fb8;">-</div>
+              </div>
             </div>
-            <button id="__iidx_btn_id_confirm" class="__iidx_btn" style="width:100%; padding:12px; border-radius:8px; background:#6c5ce7; color:#fff; font-size:14px; font-weight:700;">この ID で進める</button>
+            <button id="__iidx_btn_id_confirm" class="__iidx_btn" style="width:100%; padding:12px; border-radius:8px; background:#6c5ce7; color:#fff; font-size:14px; font-weight:700;">この情報で進める</button>
             <p style="margin:12px 0 0; font-size:11px; color:#9ca3af; text-align:center;">DEEPER は GATE のログインセッションから自動取得しています</p>
           </div>
 
@@ -454,26 +458,33 @@
   /** Strict format check for IIDX ID (XXXX-XXXX). */
   const isValidIidxId = (s: string): boolean => /^\d{4}-\d{4}$/.test(s);
 
+  interface PlayerInfo {
+    iidxId: string;
+    djName: string | null;
+  }
+
   /**
-   * Fetch the player's IIDX ID from GATE status.html.
+   * Fetch the player's IIDX ID and DJ NAME from GATE status.html.
    *
-   * The page contains a table row of the form:
-   *   <tr>
-   *     <td>IIDX ID</td>
-   *     <td>9277-6969</td>
-   *   </tr>
-   * The regex is anchored to that label so we don't accidentally match other
-   * dash-separated numeric pairs that may appear elsewhere on the page.
+   * The page contains labelled rows of the form:
+   *   <tr><td>IIDX ID</td><td>9277-6969</td></tr>
+   *   <tr><td>DJ NAME</td><td>FOO</td></tr>
+   * Regexes are anchored to the labels so we don't false-match other values.
    */
-  const fetchIidxIdFromStatus = async (): Promise<string | null> => {
+  const fetchPlayerInfoFromStatus = async (): Promise<PlayerInfo | null> => {
     try {
       const resp = await fetch(STATUS_URL, { credentials: "include" });
       if (!resp.ok) return null;
       const html = await resp.text();
-      const m = html.match(
+      const idMatch = html.match(
         /<td[^>]*>\s*IIDX\s*ID\s*<\/td>\s*<td[^>]*>\s*(\d{4}-\d{4})\s*<\/td>/i,
       );
-      return m && isValidIidxId(m[1]) ? m[1] : null;
+      if (!idMatch || !isValidIidxId(idMatch[1])) return null;
+      const nameMatch = html.match(
+        /<td[^>]*>\s*DJ\s*NAME\s*<\/td>\s*<td[^>]*>\s*([^<]+?)\s*<\/td>/i,
+      );
+      const djName = nameMatch ? nameMatch[1].trim() : null;
+      return { iidxId: idMatch[1], djName: djName || null };
     } catch {
       return null;
     }
@@ -501,9 +512,11 @@
   const uploadCsvToDeeper = async (
     csv: string,
     iidxId: string,
+    djName: string | null,
   ): Promise<DeeperUploadResult> => {
     const form = new FormData();
     form.append("iidx_id", iidxId);
+    if (djName) form.append("dj_name", djName);
     const blob = new Blob([csv], { type: "text/csv" });
     form.append("file", blob, "deeper_dp.csv");
 
@@ -521,6 +534,32 @@
       body = null;
     }
     return { ok: resp.ok, status: resp.status, body, raw };
+  };
+
+  /**
+   * Trigger DEEPER's Voltage recalc for this player. The DEEPER SPA upload
+   * flow does this after scores.php returns; the bookmarklet must do the
+   * same or new players land with name=Unknown and CV/FV/SV=0.
+   */
+  const triggerAbilityRecalc = async (
+    playerId: number,
+    uploadId: number | undefined,
+  ): Promise<void> => {
+    const params = new URLSearchParams({
+      player_id: String(playerId),
+      trigger_player_id: String(playerId),
+    });
+    if (uploadId !== undefined) params.append("upload_id", String(uploadId));
+    try {
+      await fetch(
+        `https://deepers.site/api/ability.php?${params.toString()}`,
+        { method: "POST" },
+      );
+    } catch (e) {
+      // Non-fatal: the score data is already imported. The Voltage just
+      // won't update until someone else triggers a recalc.
+      console.warn("DEEPER ability recalc failed:", e);
+    }
   };
 
   // ---------------------------------------------------------------------------
@@ -609,7 +648,11 @@
     }
   };
 
-  const run = async (mode: ScrapeMode, iidxId: string): Promise<void> => {
+  const run = async (
+    mode: ScrapeMode,
+    iidxId: string,
+    djName: string | null,
+  ): Promise<void> => {
     showStep("progress");
 
     try {
@@ -630,7 +673,21 @@
       const statusLevel = document.getElementById("__iidx_status_level");
       if (statusLevel) statusLevel.textContent = "DEEPER に送信中...";
 
-      const upload = await uploadCsvToDeeper(finalCsv, iidxId);
+      const upload = await uploadCsvToDeeper(finalCsv, iidxId, djName);
+
+      // Trigger Voltage recalc — DEEPER's SPA upload does this after the
+      // import; the bookmarklet must do it too or the player's Voltage is
+      // left stale (0 for new players).
+      if (upload.ok && upload.body) {
+        const playerId =
+          typeof upload.body.player_id === "number" ? upload.body.player_id : null;
+        const uploadId =
+          typeof upload.body.upload_id === "number" ? upload.body.upload_id : undefined;
+        if (playerId !== null) {
+          if (statusLevel) statusLevel.textContent = "Voltage を再計算中...";
+          await triggerAbilityRecalc(playerId, uploadId);
+        }
+      }
 
       if (upload.ok) {
         renderSuccess(itemCount, pageCount, upload);
@@ -657,6 +714,7 @@
 
   // Mutable state across steps.
   let resolvedIidxId: string | null = null;
+  let resolvedDjName: string | null = null;
 
   const closeModal = (): void => {
     if (document.body.contains(overlay)) {
@@ -670,28 +728,38 @@
     showStep("error");
   };
 
-  // Resolve IIDX ID: PREBAKED first, otherwise fetch from GATE status.html.
+  // Resolve player info: PREBAKED first, otherwise fetch from GATE status.html.
   // No manual input fallback — if GATE doesn't return an ID, the bookmarklet
   // refuses to proceed.
   const initIidxId = async (): Promise<void> => {
     if (PREBAKED_IIDX_ID && isValidIidxId(PREBAKED_IIDX_ID)) {
       resolvedIidxId = PREBAKED_IIDX_ID;
+      resolvedDjName = null;
       saveIidxId(PREBAKED_IIDX_ID);
       showStep("select_score");
       return;
     }
     showStep("id_fetching");
-    const id = await fetchIidxIdFromStatus();
-    if (!id) {
+    const info = await fetchPlayerInfoFromStatus();
+    if (!info) {
       showIidxIdError(
         "GATE から IIDX ID を取得できませんでした。e-AMUSEMENT GATE にログインした状態で、いずれかの IIDX ページから実行してください。",
       );
       return;
     }
-    resolvedIidxId = id;
-    saveIidxId(id);
-    const txt = document.getElementById("__iidx_confirm_id_text");
-    if (txt) txt.textContent = id;
+    resolvedIidxId = info.iidxId;
+    resolvedDjName = info.djName;
+    saveIidxId(info.iidxId);
+    const idTxt = document.getElementById("__iidx_confirm_id_text");
+    if (idTxt) idTxt.textContent = info.iidxId;
+    const nameWrap = document.getElementById("__iidx_confirm_name_wrap");
+    const nameTxt = document.getElementById("__iidx_confirm_name_text");
+    if (info.djName && nameWrap && nameTxt) {
+      nameTxt.textContent = info.djName;
+      nameWrap.style.display = "block";
+    } else if (nameWrap) {
+      nameWrap.style.display = "none";
+    }
     showStep("id_confirm");
   };
 
@@ -706,9 +774,9 @@
   (document.getElementById("__iidx_btn_back") as HTMLButtonElement).onclick =
     () => showStep(resolvedIidxId ? "id_confirm" : "id_fetching");
   (document.getElementById("__iidx_btn_all") as HTMLButtonElement).onclick =
-    () => resolvedIidxId && run("all", resolvedIidxId);
+    () => resolvedIidxId && run("all", resolvedIidxId, resolvedDjName);
   (document.getElementById("__iidx_btn_1112") as HTMLButtonElement).onclick =
-    () => resolvedIidxId && run("1112", resolvedIidxId);
+    () => resolvedIidxId && run("1112", resolvedIidxId, resolvedDjName);
 
   // Global Actions
   (document.getElementById("__iidx_btn_x") as HTMLButtonElement).onclick =
