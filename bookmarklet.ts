@@ -125,6 +125,9 @@
 
   const SCORE_POST_URL = `https://p.eagate.573.jp/game/2dx/${ver}/djdata/music/difficulty.html`;
 
+  /** GATE profile page that exposes the player's IIDX ID. */
+  const STATUS_URL = `https://p.eagate.573.jp/game/2dx/${ver}/djdata/status.html`;
+
   /** DEEPER score upload API. */
   const DEEPER_POST_URL = "https://deepers.site/api/scores.php";
 
@@ -272,13 +275,20 @@
         </div>
 
         <div style="padding:24px;">
-          <div id="__iidx_step_iidx_id">
-            <p style="margin:0 0 10px; font-weight:700;">IIDX IDを入力してください</p>
-            <p style="margin:0 0 14px; font-size:12px; color:#6b7280;">DEEPERに紐づける ID です。e-AMUSEMENT 上に表示されている <code style="background:#f5f3ff; padding:2px 5px; border-radius:3px;">XXXX-XXXX</code> 形式の数字。</p>
-            <input id="__iidx_input_id" type="text" placeholder="0000-0000" maxlength="9" style="width:100%; padding:12px; border:2px solid #e5e7eb; border-radius:8px; font-size:16px; font-family:monospace; text-align:center; letter-spacing:2px; box-sizing:border-box;">
-            <p id="__iidx_input_err" style="margin:8px 0 0; font-size:12px; color:#b91c1c; display:none;"></p>
-            <button id="__iidx_btn_id_next" class="__iidx_btn" style="margin-top:16px; width:100%; padding:12px; border-radius:8px; background:#6c5ce7; color:#fff; font-size:14px; font-weight:700;">次へ</button>
-            <p style="margin:12px 0 0; font-size:11px; color:#9ca3af; text-align:center;">入力した IIDX ID はブラウザに保存され、次回以降は自動入力されます</p>
+          <div id="__iidx_step_id_fetching" style="text-align:center; padding:20px 0;">
+            <div style="width:48px; height:48px; border:4px solid #ece9ff; border-top-color:#6c5ce7; border-radius:50%; animation:__iidx_spin 1s linear infinite; margin:0 auto 20px;"></div>
+            <p style="margin:0; font-weight:700;">GATE から IIDX ID を取得中...</p>
+            <p style="margin:8px 0 0; font-size:12px; color:#6b7280;">e-AMUSEMENT GATE のプロフィールページに問い合わせています</p>
+          </div>
+
+          <div id="__iidx_step_id_confirm" style="display:none;">
+            <p style="margin:0 0 14px; font-weight:700;">IIDX ID を確認してください</p>
+            <div style="background:#f5f3ff; border:2px solid #6c5ce7; border-radius:12px; padding:18px; text-align:center; margin-bottom:14px;">
+              <div style="font-size:11px; color:#6b7280; letter-spacing:1px; margin-bottom:6px;">あなたの IIDX ID</div>
+              <div id="__iidx_confirm_id_text" style="font-family:monospace; font-size:24px; font-weight:800; color:#4a3fb8; letter-spacing:3px;">-</div>
+            </div>
+            <button id="__iidx_btn_id_confirm" class="__iidx_btn" style="width:100%; padding:12px; border-radius:8px; background:#6c5ce7; color:#fff; font-size:14px; font-weight:700;">この ID で進める</button>
+            <p style="margin:12px 0 0; font-size:11px; color:#9ca3af; text-align:center;">DEEPER は GATE のログインセッションから自動取得しています</p>
           </div>
 
           <div id="__iidx_step_select_score" style="display:none;">
@@ -340,14 +350,16 @@
   };
 
   type StepName =
-    | "iidx_id"
+    | "id_fetching"
+    | "id_confirm"
     | "select_score"
     | "progress"
     | "result"
     | "error";
 
   const STEPS: readonly StepName[] = [
-    "iidx_id",
+    "id_fetching",
+    "id_confirm",
     "select_score",
     "progress",
     "result",
@@ -443,22 +455,28 @@
   const isValidIidxId = (s: string): boolean => /^\d{4}-\d{4}$/.test(s);
 
   /**
-   * Resolve the user's IIDX ID, in order of preference:
-   *   1. PREBAKED_IIDX_ID (from per-user loader, Phase 2)
-   *   2. localStorage (saved from previous run)
-   *   3. null — caller must prompt the user
+   * Fetch the player's IIDX ID from GATE status.html.
+   *
+   * The page contains a table row of the form:
+   *   <tr>
+   *     <td>IIDX ID</td>
+   *     <td>9277-6969</td>
+   *   </tr>
+   * The regex is anchored to that label so we don't accidentally match other
+   * dash-separated numeric pairs that may appear elsewhere on the page.
    */
-  const resolveIidxId = (): string | null => {
-    if (PREBAKED_IIDX_ID && isValidIidxId(PREBAKED_IIDX_ID)) {
-      return PREBAKED_IIDX_ID;
-    }
+  const fetchIidxIdFromStatus = async (): Promise<string | null> => {
     try {
-      const cached = localStorage.getItem(LS_IIDX_ID_KEY);
-      if (cached && isValidIidxId(cached)) return cached;
+      const resp = await fetch(STATUS_URL, { credentials: "include" });
+      if (!resp.ok) return null;
+      const html = await resp.text();
+      const m = html.match(
+        /<td[^>]*>\s*IIDX\s*ID\s*<\/td>\s*<td[^>]*>\s*(\d{4}-\d{4})\s*<\/td>/i,
+      );
+      return m && isValidIidxId(m[1]) ? m[1] : null;
     } catch {
-      /* localStorage unavailable */
+      return null;
     }
-    return null;
   };
 
   const saveIidxId = (id: string): void => {
@@ -638,7 +656,7 @@
   document.body.appendChild(overlay);
 
   // Mutable state across steps.
-  let resolvedIidxId: string | null = resolveIidxId();
+  let resolvedIidxId: string | null = null;
 
   const closeModal = (): void => {
     if (document.body.contains(overlay)) {
@@ -646,46 +664,47 @@
     }
   };
 
-  const idInput = document.getElementById(
-    "__iidx_input_id",
-  ) as HTMLInputElement | null;
-  const idErr = document.getElementById("__iidx_input_err");
-
-  // If we already know the IIDX ID, skip the input step.
-  if (resolvedIidxId) {
-    if (idInput) idInput.value = resolvedIidxId;
-    showStep("select_score");
-  } else {
-    showStep("iidx_id");
-  }
-
-  // Step: IIDX ID input
-  const handleIidxIdSubmit = (): void => {
-    const raw = (idInput?.value ?? "").trim();
-    if (!isValidIidxId(raw)) {
-      if (idErr) {
-        idErr.textContent =
-          "IIDX ID の形式が正しくありません（例: 5765-9412）";
-        idErr.style.display = "block";
-      }
-      return;
-    }
-    if (idErr) idErr.style.display = "none";
-    resolvedIidxId = raw;
-    saveIidxId(raw);
-    showStep("select_score");
+  const showIidxIdError = (msg: string): void => {
+    const el = document.getElementById("__iidx_err_msg");
+    if (el) el.textContent = msg;
+    showStep("error");
   };
 
+  // Resolve IIDX ID: PREBAKED first, otherwise fetch from GATE status.html.
+  // No manual input fallback — if GATE doesn't return an ID, the bookmarklet
+  // refuses to proceed.
+  const initIidxId = async (): Promise<void> => {
+    if (PREBAKED_IIDX_ID && isValidIidxId(PREBAKED_IIDX_ID)) {
+      resolvedIidxId = PREBAKED_IIDX_ID;
+      saveIidxId(PREBAKED_IIDX_ID);
+      showStep("select_score");
+      return;
+    }
+    showStep("id_fetching");
+    const id = await fetchIidxIdFromStatus();
+    if (!id) {
+      showIidxIdError(
+        "GATE から IIDX ID を取得できませんでした。e-AMUSEMENT GATE にログインした状態で、いずれかの IIDX ページから実行してください。",
+      );
+      return;
+    }
+    resolvedIidxId = id;
+    saveIidxId(id);
+    const txt = document.getElementById("__iidx_confirm_id_text");
+    if (txt) txt.textContent = id;
+    showStep("id_confirm");
+  };
+
+  void initIidxId();
+
+  // Step: IIDX ID confirm
   (
-    document.getElementById("__iidx_btn_id_next") as HTMLButtonElement
-  ).onclick = handleIidxIdSubmit;
-  idInput?.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") handleIidxIdSubmit();
-  });
+    document.getElementById("__iidx_btn_id_confirm") as HTMLButtonElement
+  ).onclick = () => showStep("select_score");
 
   // Step: Score range select
   (document.getElementById("__iidx_btn_back") as HTMLButtonElement).onclick =
-    () => showStep("iidx_id");
+    () => showStep(resolvedIidxId ? "id_confirm" : "id_fetching");
   (document.getElementById("__iidx_btn_all") as HTMLButtonElement).onclick =
     () => resolvedIidxId && run("all", resolvedIidxId);
   (document.getElementById("__iidx_btn_1112") as HTMLButtonElement).onclick =
@@ -697,7 +716,7 @@
   (document.getElementById("__iidx_btn_close2") as HTMLButtonElement).onclick =
     closeModal;
   (document.getElementById("__iidx_btn_retry") as HTMLButtonElement).onclick =
-    () => showStep(resolvedIidxId ? "select_score" : "iidx_id");
+    () => void initIidxId();
 
   // Close on backdrop click.
   overlay.addEventListener("click", (e: MouseEvent) => {
