@@ -291,8 +291,9 @@
                 <div id="__iidx_confirm_name_text" style="font-family:monospace; font-size:18px; font-weight:700; color:#4a3fb8;">-</div>
               </div>
             </div>
-            <button id="__iidx_btn_id_confirm" class="__iidx_btn" style="width:100%; padding:12px; border-radius:8px; background:#6c5ce7; color:#fff; font-size:14px; font-weight:700;">データを取得し登録する</button>
-            <p style="margin:12px 0 0; font-size:11px; color:#9ca3af; text-align:center; line-height:1.6;">この IIDX ID が DEEPER に未登録の場合は<strong style="color:#6c5ce7;">新規登録</strong>、登録済みの場合は<strong style="color:#6c5ce7;">上書き更新</strong>します。<br>DEEPER は GATE のログインセッションから自動取得しています。</p>
+            <button id="__iidx_btn_id_confirm" class="__iidx_btn" style="width:100%; padding:12px; border-radius:8px; background:#6c5ce7; color:#fff; font-size:14px; font-weight:700;">このプレイヤーでデータを取得し登録する</button>
+            <button id="__iidx_btn_id_cancel" class="__iidx_btn" style="width:100%; margin-top:8px; padding:10px; border-radius:8px; background:#fff; border:1px solid #e5e7eb; color:#6b7280; font-size:13px;">キャンセル</button>
+            <p style="margin:12px 0 0; font-size:11px; color:#9ca3af; text-align:center; line-height:1.6;">この IIDX ID が DEEPER に未登録の場合は<strong style="color:#6c5ce7;">新規登録</strong>、登録済みの場合は<strong style="color:#6c5ce7;">上書き更新</strong>します。</p>
           </div>
 
           <div id="__iidx_step_select_score" style="display:none;">
@@ -588,8 +589,7 @@
       title.style.color = "#166534";
     }
     if (summary) {
-      summary.textContent = `${itemCount}曲 / ${pageCount}ページ取得`;
-      summary.style.color = "#15803d";
+      summary.textContent = "";
     }
 
     if (details) {
@@ -771,6 +771,9 @@
   (
     document.getElementById("__iidx_btn_id_confirm") as HTMLButtonElement
   ).onclick = () => showStep("select_score");
+  (
+    document.getElementById("__iidx_btn_id_cancel") as HTMLButtonElement
+  ).onclick = closeModal;
 
   // Step: Score range select
   (document.getElementById("__iidx_btn_back") as HTMLButtonElement).onclick =
