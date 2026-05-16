@@ -291,8 +291,8 @@
                 <div id="__iidx_confirm_name_text" style="font-family:monospace; font-size:18px; font-weight:700; color:#4a3fb8;">-</div>
               </div>
             </div>
-            <button id="__iidx_btn_id_confirm" class="__iidx_btn" style="width:100%; padding:12px; border-radius:8px; background:#6c5ce7; color:#fff; font-size:14px; font-weight:700;">この情報で進める</button>
-            <p style="margin:12px 0 0; font-size:11px; color:#9ca3af; text-align:center;">DEEPER は GATE のログインセッションから自動取得しています</p>
+            <button id="__iidx_btn_id_confirm" class="__iidx_btn" style="width:100%; padding:12px; border-radius:8px; background:#6c5ce7; color:#fff; font-size:14px; font-weight:700;">データを取得し登録する</button>
+            <p style="margin:12px 0 0; font-size:11px; color:#9ca3af; text-align:center; line-height:1.6;">この IIDX ID が DEEPER に未登録の場合は<strong style="color:#6c5ce7;">新規登録</strong>、登録済みの場合は<strong style="color:#6c5ce7;">上書き更新</strong>します。<br>DEEPER は GATE のログインセッションから自動取得しています。</p>
           </div>
 
           <div id="__iidx_step_select_score" style="display:none;">
@@ -600,17 +600,12 @@
       }
       if (typeof body.changes === "number") {
         lines.push(
-          `<span style="color:#6b7280;">うち更新（ランプ/スコア向上）:</span> <strong>${body.changes}</strong> 件`,
+          `<span style="color:#6b7280;">うち更新（クリア／スコア更新）:</span> <strong>${body.changes}</strong> 件`,
         );
       }
       if (typeof body.songs_added === "number" && body.songs_added > 0) {
         lines.push(
           `DB に新規追加された譜面: <strong>${body.songs_added}</strong>`,
-        );
-      }
-      if (typeof body.skipped === "number" && body.skipped > 0) {
-        lines.push(
-          `<span style="color:#6b7280;">未プレイ等でスキップ:</span> ${body.skipped} 件`,
         );
       }
       if (Array.isArray(body.warnings) && body.warnings.length > 0) {
