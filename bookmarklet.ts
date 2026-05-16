@@ -269,7 +269,7 @@
         <div style="background:#4a3fb8; padding:18px 24px; display:flex; align-items:center; justify-content:space-between;">
           <div style="display:flex; align-items:center; gap:10px;">
             <span style="font-size:20px; font-weight:800; color:#fff; letter-spacing:1.5px;">DEEPER</span>
-            <span style="font-size:12px; color:#d9d4ff; opacity:0.9;">DP Score Importer</span>
+            <span style="font-size:12px; color:#d9d4ff; opacity:0.9;">DP Player Data Importer</span>
           </div>
           <button id="__iidx_btn_x" style="background:none; border:none; color:#fff; font-size:24px; cursor:pointer;">&times;</button>
         </div>
@@ -596,7 +596,12 @@
       const body = upload.body ?? {};
       const lines: string[] = [];
       if (typeof body.imported === "number") {
-        lines.push(`新規スコア: <strong>${body.imported}</strong> 件`);
+        lines.push(`取込済み: <strong>${body.imported}</strong> 件`);
+      }
+      if (typeof body.changes === "number") {
+        lines.push(
+          `<span style="color:#6b7280;">うち更新（ランプ/スコア向上）:</span> <strong>${body.changes}</strong> 件`,
+        );
       }
       if (typeof body.songs_added === "number" && body.songs_added > 0) {
         lines.push(
@@ -604,7 +609,9 @@
         );
       }
       if (typeof body.skipped === "number" && body.skipped > 0) {
-        lines.push(`スキップ: ${body.skipped}`);
+        lines.push(
+          `<span style="color:#6b7280;">未プレイ等でスキップ:</span> ${body.skipped} 件`,
+        );
       }
       if (Array.isArray(body.warnings) && body.warnings.length > 0) {
         lines.push(
