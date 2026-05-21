@@ -618,6 +618,20 @@
           ? lines.join("<br>")
           : "DEEPER のレスポンスを解釈できませんでした（生レスポンスは DevTools で確認）";
     }
+
+    // Point the "DEEPER を開く" CTA at this upload's detail page so the
+    // operator lands directly on what just changed instead of the home page.
+    const deeperLink = document.getElementById("__iidx_link_deeper") as HTMLAnchorElement | null;
+    if (deeperLink) {
+      const uploadId =
+        typeof (upload.body as { upload_id?: unknown })?.upload_id === "number"
+          ? (upload.body as { upload_id: number }).upload_id
+          : null;
+      deeperLink.href =
+        uploadId !== null
+          ? `https://deepers.site/#upload-detail/${uploadId}`
+          : "https://deepers.site/";
+    }
   };
 
   const renderUploadFailure = (upload: DeeperUploadResult): void => {
