@@ -1,9 +1,8 @@
 {
-  "name": "iidx-scraping-bookmarklet",
-  "version": "1.0.0",
+  "name": "deeper-bookmarklet",
+  "version": "0.1.0",
   "private": true,
   "scripts": {
-    "preinstall": "npx only-allow pnpm",
     "build": "tsc && terser dist/bookmarklet.js -o dist/bookmarklet.min.js --compress --mangle"
   },
   "devDependencies": {
