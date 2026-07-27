@@ -621,6 +621,8 @@
 
     // Point the "DEEPER を開く" CTA at this upload's detail page so the
     // operator lands directly on what just changed instead of the home page.
+    // ?d3=1 marks the visitor as the uploader: that upload-detail then shows
+    // the DEEPER DEPTH celebrate/collect card (same as the in-site upload flow).
     const deeperLink = document.getElementById("__iidx_link_deeper") as HTMLAnchorElement | null;
     if (deeperLink) {
       const uploadId =
@@ -629,7 +631,7 @@
           : null;
       deeperLink.href =
         uploadId !== null
-          ? `https://deepers.site/#upload-detail/${uploadId}`
+          ? `https://deepers.site/?d3=1#upload-detail/${uploadId}`
           : "https://deepers.site/";
     }
   };
