@@ -128,11 +128,22 @@
   /** GATE profile page that exposes the player's IIDX ID. */
   const STATUS_URL = `https://p.eagate.573.jp/game/2dx/${ver}/djdata/status.html`;
 
+  // Personalization globals, set by the loader link before this script runs:
+  //   __DEEPER_BASE  alternate API/site base (staging builds)
+  //   __DEEPER_KEY   account upload key — required once an IIDX ID is
+  //                  account-linked (server rejects other uploaders)
+  //   __DEEPER_LINK  one-time verify code — links this IIDX ID to the
+  //                  issuing account on a successful upload
+  const W = window as unknown as Record<string, string | undefined>;
+  const DEEPER_BASE = W.__DEEPER_BASE || "https://deepers.site";
+  const UPLOAD_KEY = W.__DEEPER_KEY || "";
+  const LINK_CODE = W.__DEEPER_LINK || "";
+
   /** DEEPER score upload API. */
-  const DEEPER_POST_URL = "https://deepers.site/api/scores.php";
+  const DEEPER_POST_URL = `${DEEPER_BASE}/api/scores.php`;
 
   /** Public DEEPER URL — link target shown after success. */
-  const DEEPER_HOME = "https://deepers.site/";
+  const DEEPER_HOME = `${DEEPER_BASE}/`;
 
   /** Placeholder for fields not available on GATE; `scores.php` treats this as NULL. */
   const NA = "---";
@@ -334,7 +345,7 @@
             </div>
             <div id="__iidx_result_details" style="background:#f9fafb; border:1px solid #e5e7eb; border-radius:8px; padding:12px; font-size:12px; color:#374151; line-height:1.6; max-height:160px; overflow-y:auto;"></div>
             <div style="display:flex; gap:10px; margin-top:16px;">
-              <a id="__iidx_link_deeper" href="https://deepers.site/" target="_blank" style="flex:2; background:#6c5ce7; color:#fff; text-decoration:none; padding:12px; border-radius:8px; text-align:center; font-weight:700; font-size:14px;">DEEPERを開く</a>
+              <a id="__iidx_link_deeper" href="${DEEPER_BASE}/" target="_blank" style="flex:2; background:#6c5ce7; color:#fff; text-decoration:none; padding:12px; border-radius:8px; text-align:center; font-weight:700; font-size:14px;">DEEPERを開く</a>
               <button id="__iidx_btn_close2" style="flex:1; background:#fff; border:1px solid #e5e7eb; color:#6b7280; border-radius:8px; font-size:14px;">閉じる</button>
             </div>
           </div>
@@ -518,6 +529,8 @@
     const form = new FormData();
     form.append("iidx_id", iidxId);
     if (djName) form.append("dj_name", djName);
+    if (UPLOAD_KEY) form.append("upload_key", UPLOAD_KEY);
+    if (LINK_CODE) form.append("verify_code", LINK_CODE);
     const blob = new Blob([csv], { type: "text/csv" });
     form.append("file", blob, "deeper_dp.csv");
 
@@ -553,7 +566,7 @@
     if (uploadId !== undefined) params.append("upload_id", String(uploadId));
     try {
       await fetch(
-        `https://deepers.site/api/ability.php?${params.toString()}`,
+        `${DEEPER_BASE}/api/ability.php?${params.toString()}`,
         { method: "POST" },
       );
     } catch (e) {
@@ -631,8 +644,8 @@
           : null;
       deeperLink.href =
         uploadId !== null
-          ? `https://deepers.site/?d3=1#upload-detail/${uploadId}`
-          : "https://deepers.site/";
+          ? `${DEEPER_BASE}/?d3=1#upload-detail/${uploadId}`
+          : `${DEEPER_BASE}/`;
     }
   };
 
