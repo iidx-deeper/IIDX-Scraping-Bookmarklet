@@ -118,7 +118,7 @@
 
   const detectVersion = (): string => {
     const match = location.href.match(/\/game\/2dx\/(\d+)\//);
-    return match ? match[1] : "33";
+    return match ? match[1] : "34";
   };
 
   const ver = detectVersion();
