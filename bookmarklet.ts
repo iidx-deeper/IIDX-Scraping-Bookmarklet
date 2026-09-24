@@ -110,7 +110,7 @@
   type SongMap = Record<string, SongEntry>;
 
   /** Scraping mode selected by the user in the UI. */
-  type ScrapeMode = "all" | "1112";
+  type ScrapeMode = "all" | "range";
 
   // ---------------------------------------------------------------------------
   // Helpers — URL / versioning
@@ -118,7 +118,7 @@
 
   const detectVersion = (): string => {
     const match = location.href.match(/\/game\/2dx\/(\d+)\//);
-    return match ? match[1] : "33";
+    return match ? match[1] : "34";
   };
 
   const ver = detectVersion();
@@ -128,11 +128,22 @@
   /** GATE profile page that exposes the player's IIDX ID. */
   const STATUS_URL = `https://p.eagate.573.jp/game/2dx/${ver}/djdata/status.html`;
 
+  // Personalization globals, set by the loader link before this script runs:
+  //   __DEEPER_BASE  alternate API/site base (staging builds)
+  //   __DEEPER_KEY   account upload key — required once an IIDX ID is
+  //                  account-linked (server rejects other uploaders)
+  //   __DEEPER_LINK  one-time verify code — links this IIDX ID to the
+  //                  issuing account on a successful upload
+  const W = window as unknown as Record<string, string | undefined>;
+  const DEEPER_BASE = W.__DEEPER_BASE || "https://deepers.site";
+  const UPLOAD_KEY = W.__DEEPER_KEY || "";
+  const LINK_CODE = W.__DEEPER_LINK || "";
+
   /** DEEPER score upload API. */
-  const DEEPER_POST_URL = "https://deepers.site/api/scores.php";
+  const DEEPER_POST_URL = `${DEEPER_BASE}/api/scores.php`;
 
   /** Public DEEPER URL — link target shown after success. */
-  const DEEPER_HOME = "https://deepers.site/";
+  const DEEPER_HOME = `${DEEPER_BASE}/`;
 
   /** Placeholder for fields not available on GATE; `scores.php` treats this as NULL. */
   const NA = "---";
@@ -306,10 +317,16 @@
                 <div style="font-weight:700; color:#1a1a1a;">全楽曲を取得する (☆1-12)</div>
                 <div style="font-size:12px; color:#6c5ce7;">目安: 1〜2分</div>
               </button>
-              <button id="__iidx_btn_1112" class="__iidx_btn" style="padding:16px; border-radius:12px; background:#f5f3ff; border:2px solid #6c5ce7; text-align:left;">
-                <div style="font-weight:700; color:#1a1a1a;">☆11・☆12 のみ取得する</div>
-                <div style="font-size:12px; color:#6c5ce7;">目安: 約30秒</div>
-              </button>
+              <div style="padding:16px; border-radius:12px; background:#f5f3ff; border:2px solid #6c5ce7;">
+                <div style="font-weight:700; color:#1a1a1a;">☆の範囲を指定して取得する</div>
+                <div style="display:flex; align-items:center; gap:8px; margin:10px 0 12px; flex-wrap:wrap;">
+                  <select id="__iidx_range_min" style="padding:8px 10px; border-radius:9px; border:2px solid #c9c2ff; background:#fff; font-size:15px; font-weight:700; color:#1a1a1a;"><option value="0">☆1</option><option value="1">☆2</option><option value="2">☆3</option><option value="3">☆4</option><option value="4">☆5</option><option value="5">☆6</option><option value="6">☆7</option><option value="7">☆8</option><option value="8">☆9</option><option value="9">☆10</option><option value="10">☆11</option><option value="11">☆12</option></select>
+                  <span style="font-weight:700; color:#6b7280;">〜</span>
+                  <select id="__iidx_range_max" style="padding:8px 10px; border-radius:9px; border:2px solid #c9c2ff; background:#fff; font-size:15px; font-weight:700; color:#1a1a1a;"><option value="0">☆1</option><option value="1">☆2</option><option value="2">☆3</option><option value="3">☆4</option><option value="4">☆5</option><option value="5">☆6</option><option value="6">☆7</option><option value="7">☆8</option><option value="8">☆9</option><option value="9">☆10</option><option value="10">☆11</option><option value="11">☆12</option></select>
+                  <span style="font-size:12px; color:#6c5ce7; margin-left:auto;">範囲が狭いほど短時間</span>
+                </div>
+                <button id="__iidx_btn_range" class="__iidx_btn" style="width:100%; padding:12px; border-radius:10px; background:#6c5ce7; color:#fff; font-size:15px; font-weight:800;">この範囲で取得する</button>
+              </div>
             </div>
           </div>
 
@@ -334,7 +351,7 @@
             </div>
             <div id="__iidx_result_details" style="background:#f9fafb; border:1px solid #e5e7eb; border-radius:8px; padding:12px; font-size:12px; color:#374151; line-height:1.6; max-height:160px; overflow-y:auto;"></div>
             <div style="display:flex; gap:10px; margin-top:16px;">
-              <a id="__iidx_link_deeper" href="https://deepers.site/" target="_blank" style="flex:2; background:#6c5ce7; color:#fff; text-decoration:none; padding:12px; border-radius:8px; text-align:center; font-weight:700; font-size:14px;">DEEPERを開く</a>
+              <a id="__iidx_link_deeper" href="${DEEPER_BASE}/" target="_blank" style="flex:2; background:#6c5ce7; color:#fff; text-decoration:none; padding:12px; border-radius:8px; text-align:center; font-weight:700; font-size:14px;">DEEPERを開く</a>
               <button id="__iidx_btn_close2" style="flex:1; background:#fff; border:1px solid #e5e7eb; color:#6b7280; border-radius:8px; font-size:14px;">閉じる</button>
             </div>
           </div>
@@ -518,6 +535,8 @@
     const form = new FormData();
     form.append("iidx_id", iidxId);
     if (djName) form.append("dj_name", djName);
+    if (UPLOAD_KEY) form.append("upload_key", UPLOAD_KEY);
+    if (LINK_CODE) form.append("verify_code", LINK_CODE);
     const blob = new Blob([csv], { type: "text/csv" });
     form.append("file", blob, "deeper_dp.csv");
 
@@ -553,7 +572,7 @@
     if (uploadId !== undefined) params.append("upload_id", String(uploadId));
     try {
       await fetch(
-        `https://deepers.site/api/ability.php?${params.toString()}`,
+        `${DEEPER_BASE}/api/ability.php?${params.toString()}`,
         { method: "POST" },
       );
     } catch (e) {
@@ -621,6 +640,8 @@
 
     // Point the "DEEPER を開く" CTA at this upload's detail page so the
     // operator lands directly on what just changed instead of the home page.
+    // ?d3=1 marks the visitor as the uploader: that upload-detail then shows
+    // the DEEPER DEPTH celebrate/collect card (same as the in-site upload flow).
     const deeperLink = document.getElementById("__iidx_link_deeper") as HTMLAnchorElement | null;
     if (deeperLink) {
       const uploadId =
@@ -629,8 +650,8 @@
           : null;
       deeperLink.href =
         uploadId !== null
-          ? `https://deepers.site/#upload-detail/${uploadId}`
-          : "https://deepers.site/";
+          ? `${DEEPER_BASE}/?d3=1#upload-detail/${uploadId}`
+          : `${DEEPER_BASE}/`;
     }
   };
 
@@ -666,6 +687,7 @@
 
   const run = async (
     mode: ScrapeMode,
+    range: [number, number],
     iidxId: string,
     djName: string | null,
   ): Promise<void> => {
@@ -673,7 +695,9 @@
 
     try {
       const levelIndices: number[] =
-        mode === "all" ? [...Array(12).keys()] : [10, 11];
+        mode === "all"
+          ? [...Array(12).keys()]
+          : [...Array(range[1] - range[0] + 1).keys()].map((i) => i + range[0]);
       const songMap: SongMap = {};
       const pageCounter = { value: 0 };
 
@@ -792,10 +816,50 @@
   // Step: Score range select
   (document.getElementById("__iidx_btn_back") as HTMLButtonElement).onclick =
     () => showStep(resolvedIidxId ? "id_confirm" : "id_fetching");
+  // ☆ range: level indices 0..11 (☆1..☆12); remembered per browser.
+  const LS_RANGE_KEY = "__deeper_level_range";
+  const rangeMin = document.getElementById("__iidx_range_min") as HTMLSelectElement;
+  const rangeMax = document.getElementById("__iidx_range_max") as HTMLSelectElement;
+  const readRange = (): [number, number] => [
+    Number(rangeMin.value),
+    Number(rangeMax.value),
+  ];
+  let savedRange: [number, number] = [10, 11];
+  try {
+    const raw = JSON.parse(localStorage.getItem(LS_RANGE_KEY) || "null");
+    if (
+      Array.isArray(raw) &&
+      raw.length === 2 &&
+      raw.every((v) => Number.isInteger(v) && v >= 0 && v <= 11) &&
+      raw[0] <= raw[1]
+    ) {
+      savedRange = [raw[0], raw[1]];
+    }
+  } catch {
+    /* ignore */
+  }
+  rangeMin.value = String(savedRange[0]);
+  rangeMax.value = String(savedRange[1]);
+  rangeMin.onchange = () => {
+    if (Number(rangeMin.value) > Number(rangeMax.value)) rangeMax.value = rangeMin.value;
+  };
+  rangeMax.onchange = () => {
+    if (Number(rangeMax.value) < Number(rangeMin.value)) rangeMin.value = rangeMax.value;
+  };
+
   (document.getElementById("__iidx_btn_all") as HTMLButtonElement).onclick =
-    () => resolvedIidxId && run("all", resolvedIidxId, resolvedDjName);
-  (document.getElementById("__iidx_btn_1112") as HTMLButtonElement).onclick =
-    () => resolvedIidxId && run("1112", resolvedIidxId, resolvedDjName);
+    () => resolvedIidxId && run("all", [0, 11], resolvedIidxId, resolvedDjName);
+  (document.getElementById("__iidx_btn_range") as HTMLButtonElement).onclick =
+    () => {
+      if (!resolvedIidxId) return;
+      const range = readRange();
+      try {
+        localStorage.setItem(LS_RANGE_KEY, JSON.stringify(range));
+      } catch {
+        /* ignore */
+      }
+      void run("range", range, resolvedIidxId, resolvedDjName);
+    };
 
   // Global Actions
   (document.getElementById("__iidx_btn_x") as HTMLButtonElement).onclick =
