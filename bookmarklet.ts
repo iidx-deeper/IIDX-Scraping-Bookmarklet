@@ -110,7 +110,7 @@
   type SongMap = Record<string, SongEntry>;
 
   /** Scraping mode selected by the user in the UI. */
-  type ScrapeMode = "all" | "1112";
+  type ScrapeMode = "all" | "range";
 
   // ---------------------------------------------------------------------------
   // Helpers — URL / versioning
@@ -317,10 +317,16 @@
                 <div style="font-weight:700; color:#1a1a1a;">全楽曲を取得する (☆1-12)</div>
                 <div style="font-size:12px; color:#6c5ce7;">目安: 1〜2分</div>
               </button>
-              <button id="__iidx_btn_1112" class="__iidx_btn" style="padding:16px; border-radius:12px; background:#f5f3ff; border:2px solid #6c5ce7; text-align:left;">
-                <div style="font-weight:700; color:#1a1a1a;">☆11・☆12 のみ取得する</div>
-                <div style="font-size:12px; color:#6c5ce7;">目安: 約30秒</div>
-              </button>
+              <div style="padding:16px; border-radius:12px; background:#f5f3ff; border:2px solid #6c5ce7;">
+                <div style="font-weight:700; color:#1a1a1a;">☆の範囲を指定して取得する</div>
+                <div style="display:flex; align-items:center; gap:8px; margin:10px 0 12px; flex-wrap:wrap;">
+                  <select id="__iidx_range_min" style="padding:8px 10px; border-radius:9px; border:2px solid #c9c2ff; background:#fff; font-size:15px; font-weight:700; color:#1a1a1a;"><option value="0">☆1</option><option value="1">☆2</option><option value="2">☆3</option><option value="3">☆4</option><option value="4">☆5</option><option value="5">☆6</option><option value="6">☆7</option><option value="7">☆8</option><option value="8">☆9</option><option value="9">☆10</option><option value="10">☆11</option><option value="11">☆12</option></select>
+                  <span style="font-weight:700; color:#6b7280;">〜</span>
+                  <select id="__iidx_range_max" style="padding:8px 10px; border-radius:9px; border:2px solid #c9c2ff; background:#fff; font-size:15px; font-weight:700; color:#1a1a1a;"><option value="0">☆1</option><option value="1">☆2</option><option value="2">☆3</option><option value="3">☆4</option><option value="4">☆5</option><option value="5">☆6</option><option value="6">☆7</option><option value="7">☆8</option><option value="8">☆9</option><option value="9">☆10</option><option value="10">☆11</option><option value="11">☆12</option></select>
+                  <span style="font-size:12px; color:#6c5ce7; margin-left:auto;">範囲が狭いほど短時間</span>
+                </div>
+                <button id="__iidx_btn_range" class="__iidx_btn" style="width:100%; padding:12px; border-radius:10px; background:#6c5ce7; color:#fff; font-size:15px; font-weight:800;">この範囲で取得する</button>
+              </div>
             </div>
           </div>
 
@@ -681,6 +687,7 @@
 
   const run = async (
     mode: ScrapeMode,
+    range: [number, number],
     iidxId: string,
     djName: string | null,
   ): Promise<void> => {
@@ -688,7 +695,9 @@
 
     try {
       const levelIndices: number[] =
-        mode === "all" ? [...Array(12).keys()] : [10, 11];
+        mode === "all"
+          ? [...Array(12).keys()]
+          : [...Array(range[1] - range[0] + 1).keys()].map((i) => i + range[0]);
       const songMap: SongMap = {};
       const pageCounter = { value: 0 };
 
@@ -807,10 +816,50 @@
   // Step: Score range select
   (document.getElementById("__iidx_btn_back") as HTMLButtonElement).onclick =
     () => showStep(resolvedIidxId ? "id_confirm" : "id_fetching");
+  // ☆ range: level indices 0..11 (☆1..☆12); remembered per browser.
+  const LS_RANGE_KEY = "__deeper_level_range";
+  const rangeMin = document.getElementById("__iidx_range_min") as HTMLSelectElement;
+  const rangeMax = document.getElementById("__iidx_range_max") as HTMLSelectElement;
+  const readRange = (): [number, number] => [
+    Number(rangeMin.value),
+    Number(rangeMax.value),
+  ];
+  let savedRange: [number, number] = [10, 11];
+  try {
+    const raw = JSON.parse(localStorage.getItem(LS_RANGE_KEY) || "null");
+    if (
+      Array.isArray(raw) &&
+      raw.length === 2 &&
+      raw.every((v) => Number.isInteger(v) && v >= 0 && v <= 11) &&
+      raw[0] <= raw[1]
+    ) {
+      savedRange = [raw[0], raw[1]];
+    }
+  } catch {
+    /* ignore */
+  }
+  rangeMin.value = String(savedRange[0]);
+  rangeMax.value = String(savedRange[1]);
+  rangeMin.onchange = () => {
+    if (Number(rangeMin.value) > Number(rangeMax.value)) rangeMax.value = rangeMin.value;
+  };
+  rangeMax.onchange = () => {
+    if (Number(rangeMax.value) < Number(rangeMin.value)) rangeMin.value = rangeMax.value;
+  };
+
   (document.getElementById("__iidx_btn_all") as HTMLButtonElement).onclick =
-    () => resolvedIidxId && run("all", resolvedIidxId, resolvedDjName);
-  (document.getElementById("__iidx_btn_1112") as HTMLButtonElement).onclick =
-    () => resolvedIidxId && run("1112", resolvedIidxId, resolvedDjName);
+    () => resolvedIidxId && run("all", [0, 11], resolvedIidxId, resolvedDjName);
+  (document.getElementById("__iidx_btn_range") as HTMLButtonElement).onclick =
+    () => {
+      if (!resolvedIidxId) return;
+      const range = readRange();
+      try {
+        localStorage.setItem(LS_RANGE_KEY, JSON.stringify(range));
+      } catch {
+        /* ignore */
+      }
+      void run("range", range, resolvedIidxId, resolvedDjName);
+    };
 
   // Global Actions
   (document.getElementById("__iidx_btn_x") as HTMLButtonElement).onclick =
