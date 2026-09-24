@@ -780,7 +780,13 @@
       return;
     }
     showStep("id_fetching");
-    const info = await fetchPlayerInfoFromStatus();
+    // status.html occasionally fails on the first request (seen on Android
+    // Chrome); retry up to 2 more times with a short pause before giving up.
+    let info = await fetchPlayerInfoFromStatus();
+    for (let i = 0; !info && i < 2; i++) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 1500));
+      info = await fetchPlayerInfoFromStatus();
+    }
     if (!info) {
       showIidxIdError(
         "GATE から IIDX ID を取得できませんでした。e-AMUSEMENT GATE にログインした状態で、いずれかの IIDX ページから実行してください。",
